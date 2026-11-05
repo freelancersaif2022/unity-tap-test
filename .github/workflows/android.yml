@@ -1,0 +1,71 @@
+name: Build Android APK
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['README.md']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    name: Unity Android APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Unity activation secrets
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          missing=0
+          for name in UNITY_EMAIL UNITY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository Actions secret: $name"
+              missing=1
+            fi
+          done
+          if [ -z "$UNITY_LICENSE" ] && [ -z "$UNITY_SERIAL" ]; then
+            echo "::error::Add UNITY_LICENSE for Personal or UNITY_SERIAL for Pro. See README."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Unity activation setup is required. See README." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Restore Unity cache
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: unity-android-2022.3.40f1-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: unity-android-2022.3.40f1-
+      - name: Build test APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
+          unityVersion: 2022.3.40f1
+          buildMethod: UnityTapTest.BuildGame.BuildAndroid
+          androidExportType: androidPackage
+          versioning: None
+          allowDirtyBuild: true
+      - name: Verify APK exists
+        run: test -s build/Android/UnityTapTest.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnityTapTest-APK
+          path: build/Android/UnityTapTest.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Download instructions
+        run: echo "Download UnityTapTest-APK from this run's Artifacts section and extract UnityTapTest.apk." >> "$GITHUB_STEP_SUMMARY"
